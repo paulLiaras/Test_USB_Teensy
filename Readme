@@ -1,0 +1,5 @@
+Copier tout les fichiers du dossier ChangedCoreFiles
+dans le fichier core de platform.IO
+
+Sur Windows:
+C:\Users\[Votre Nom]\.platformio\packages\framework-arduinoteensy\cores\teensy4
