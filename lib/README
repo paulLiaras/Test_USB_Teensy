@@ -1,46 +1,79 @@
+# 🎛️ Guide de Configuration : Banc de Test Audio USB (Teensy / REAPER)
 
-This directory is intended for project specific (private) libraries.
-PlatformIO will compile them to static libraries and link into the executable file.
+**Objectif :** Établir une communication USB bidirectionnelle stable entre un PC Windows et un microcontrôleur (Teensy) pour du traitement DSP en temps réel (48 kHz / 128 samples). 
+Ce guide couvre les deux modes de test : **Hexaphonique Pur** (6 entrées / 6 sorties) et **Mixage Stéréo** (6 entrées / 2 sorties).
 
-The source code of each library should be placed in a separate directory
-("lib/your_library_name/[Code]").
+## 🛠️ Prérequis
+* **Matériel :** Une carte Teensy branchée en USB, flashée avec le code "Maître USB" (comportant l'interrupteur `#define USE_STEREO_MIX`).
+* **Logiciels :** REAPER et le pilote ASIO4ALL (v2) installés.
+* **Fichiers :** Un fichier audio de test `.wav` multicanal (ex: 6 ou 8 canaux).
 
-For example, see the structure of the following example libraries `Foo` and `Bar`:
+---
 
-|--lib
-|  |
-|  |--Bar
-|  |  |--docs
-|  |  |--examples
-|  |  |--src
-|  |     |- Bar.c
-|  |     |- Bar.h
-|  |  |- library.json (optional. for custom build options, etc) https://docs.platformio.org/page/librarymanager/config.html
-|  |
-|  |--Foo
-|  |  |- Foo.c
-|  |  |- Foo.h
-|  |
-|  |- README --> THIS FILE
-|
-|- platformio.ini
-|--src
-   |- main.c
+## Phase 1 : Paramétrage du Pilote (ASIO4ALL)
+1. Ouvre REAPER sur un projet vide.
+2. Va dans **Options > Preferences > Audio > Device**.
+3. Sélectionne **Audio system : `ASIO`** et **ASIO Driver : `ASIO4ALL v2`**.
+4. Clique sur **ASIO Configuration...** :
+   * Active le mode Avancé (clé à molette).
+   * **Allume (bouton bleu)** l'entrée et la sortie 6x de la Teensy.
+   * Allume la **Sortie (Output)** de la carte son du PC (ex: Realtek) pour le casque. Laisse son Entrée éteinte.
+   * Règle la **Taille de buffer ASIO** sur exactement **`128`**.
+5. Ferme le panneau ASIO.
 
-Example contents of `src/main.c` using Foo and Bar:
-```
-#include <Foo.h>
-#include <Bar.h>
+---
 
-int main (void)
-{
-  ...
-}
+## Phase 2 : Verrouillage du Moteur Audio (Le Piège du 48 kHz)
+La Teensy crashera si REAPER lui envoie du 44.1 kHz. Il faut verrouiller l'horloge.
+1. Toujours dans la fenêtre *Device* :
+   * Coche **Request sample rate** => **`48000`**
+   * Coche **Request block size** => **`128`**
+2. **⚠️ CRUCIAL :** Décoche la case tout en bas : *"Allow projects to override device sample rate"*.
+3. Assure-toi que les menus **Output range** englobent tous tes canaux matériels (de *Teensy Audio 1* jusqu'à la sortie de ton casque PC).
+4. Clique sur **OK**. *(Vérifie en haut à droite de REAPER : `48kHz` et `128spls`)*.
+5. Fais **`Alt + Entrée`** (Project Settings), coche **Project sample rate** => **`48000`**.
 
-```
+---
 
-The PlatformIO Library Dependency Finder will find automatically dependent
-libraries by scanning project source files.
+## Phase 3 : L'Envoi vers la Teensy (La Piste 1)
+*Quel que soit le mode choisi dans ton code, la Teensy doit toujours recevoir les 6 cordes séparément pour faire ses calculs.*
 
-More information about PlatformIO Library Dependency Finder
-- https://docs.platformio.org/page/librarymanager/ldf.html
+1. Glisse-dépose ton `.wav` hexaphonique pour créer la Piste 1.
+2. Bouton d'enregistrement (rouge) et monitoring (haut-parleur) **ÉTEINTS**.
+3. Clique sur le bouton **Route** de la Piste 1 :
+   * Décoche **Master send** (pour couper le son direct).
+   * Règle **Track channels** sur `8` (si fichier 8 pistes).
+   * Dans **Audio Hardware Outputs**, crée 3 tuyaux de routing :
+      1. Ajouter `1: Teensy Audio 1 / 2` => Source : **1/2**.
+      2. Ajouter `3: Teensy Audio 3 / 4` => Source : **3/4**.
+      3. Ajouter `5: Teensy Audio 5 / 6` => Source : **5/6**.
+
+---
+
+## Phase 4 : La Réception (Selon ton code C++)
+C'est ici que REAPER s'adapte à ce que tu as flashé dans la Teensy.
+
+### 🟢 OPTION A : Code en mode "Loopback Hexaphonique"
+*(La ligne `#define USE_STEREO_MIX` est commentée dans le code).*
+La Teensy renvoie les 6 cordes séparées.
+1. Crée 6 pistes vides en dessous de la Piste 1 (`Ctrl + T`).
+2. Règle les entrées : Piste 2 sur `Teensy 1`, Piste 3 sur `Teensy 2`, etc., jusqu'à la Piste 7 sur `Teensy 6`.
+3. **Arme (bouton rouge)** et active le **monitoring** sur ces 6 pistes.
+4. Laisse les panoramiques (Pan) au centre.
+
+### 🔵 OPTION B : Code en mode "Mixage Stéréo"
+*(La ligne `#define USE_STEREO_MIX` est active dans le code).*
+La Teensy additionne les cordes et renvoie seulement le canal Gauche (1) et Droit (2).
+1. Crée **seulement 2 pistes vides** en dessous de la Piste 1.
+2. Règle les entrées : 
+   * Piste 2 => `Input: Mono -> Teensy Audio 1` (Mix des cordes 1,2,3).
+   * Piste 3 => `Input: Mono -> Teensy Audio 2` (Mix des cordes 4,5,6).
+3. **Arme (bouton rouge)** et active le **monitoring** sur ces 2 pistes.
+4. **Pour l'effet Stéréo :** Règle le Pan de la Piste 2 à `100% L` et celui de la Piste 3 à `100% R`.
+
+---
+
+## Phase 5 : Écoute et Validation
+1. Affiche la piste **Master** (`Ctrl + Alt + M`).
+2. Clique sur son bouton **Route** et assigne la sortie matérielle (*Audio Hardware Outputs*) vers les canaux de ton casque PC (ex: `7 / 8` ou `Realtek Output`).
+3. Appuie sur **Espace** : Les vumètres de tes pistes de réception s'animent avec le son traité par la Teensy, et tu entends le résultat dans ton casque.
